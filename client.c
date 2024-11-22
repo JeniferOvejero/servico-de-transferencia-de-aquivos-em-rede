@@ -13,7 +13,6 @@
 #define SERVER_PORT 8080
 #define BUFFER_SIZE 128
 
-// Função para enviar o arquivo para o servidor
 void send_file(int socket, const char *file_path) {
     char buffer[BUFFER_SIZE];
     FILE *file = fopen(file_path, "rb");
