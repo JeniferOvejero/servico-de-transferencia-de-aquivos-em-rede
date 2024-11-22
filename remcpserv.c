@@ -12,9 +12,23 @@
 int clientes_conectados = 0;
 pthread_mutex_t clientes_conectados_lock = PTHREAD_MUTEX_INITIALIZER;
 
-// função para lidar com a transferência de arquivo para um cliente
+// transferência de arquivo para um cliente
 void* handle_client(void* arg) {
-    return 0;
+    int client_sock = *(int *)arg;
+    free(arg);
+
+    char buffer[1024];
+    ssize_t bytes_read;
+
+    // le dados
+    while ((bytes_read = recv(client_sock, buffer, sizeof(buffer) - 1, 0)) > 0) {
+        buffer[bytes_read] = '\0'; // garante que o buffer seja uma string válida
+        printf("Recebido: %s\n", buffer);
+    }
+
+    printf("Cliente desconectado.\n");
+    close(client_sock);
+    return NULL;
 }
 
 int main() {
