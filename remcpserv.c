@@ -31,7 +31,8 @@ void* handle_client(void* arg) {
         buffer[bytes_read] = '\0'; // garante que o buffer seja uma string válida
         printf("Recebido: %s\n", buffer);
     }
-
+    
+    clientes_conectados--;
     printf(MAGENTA "Cliente desconectado.\n" RESET);
     close(client_sock);
     return NULL;
