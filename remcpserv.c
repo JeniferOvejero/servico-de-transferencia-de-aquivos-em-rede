@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <poll.h>
 
 #define RESET "\033[0m"
 #define VERDE "\033[0;32m"
@@ -31,8 +32,7 @@ void send_file(int socket)
     bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
     if (bytes_read <= 0)
     {
-        perror("Erro ao receber o path do arquivo");
-        close(socket);
+        perror(VERMELHO"Erro ao receber o path do arquivo"RESET);
         return;
     }
     buffer[bytes_read] = '\0';
@@ -54,21 +54,39 @@ void send_file(int socket)
 
     send(socket, &file_size, sizeof(file_size), 0);
 
-    while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0)
-    {
+    int transfer_success = 1;
+    while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0) {
+        struct pollfd pfd;
+        pfd.fd = socket;
+        pfd.events = POLLIN | POLLERR | POLLHUP;
+
         sleep(1);
-        if (send(socket, buffer, bytes_read, 0) == -1)
-        {
-            perror(VERMELHO "Erro ao enviar dados" RESET);
-            fclose(file);
-            return;
+        int poll_result = poll(&pfd, 1, 0); // Timeout de 0 para verificação instantânea
+        if (poll_result > 0) {
+            if (pfd.revents & POLLHUP) {
+                printf(VERMELHO"Cliente desconectou.\n"RESET);
+                transfer_success = 0;
+                break;
+            }
+            if (pfd.revents & POLLERR) {
+                printf(VERMELHO"Erro no socket.\n"RESET);
+                transfer_success = 0;
+                break;
+            }
+        }
+
+        if (send(socket, buffer, bytes_read, 0) == -1) {
+            perror(VERMELHO"Erro ao enviar dados"RESET);
+            transfer_success = 0;
+            break;
         }
         printf("Enviando %zu bytes...\n", bytes_read);
     }
 
-    printf(VERDE "Transferência concluída!\n" RESET);
+    if (transfer_success) {
+        printf(VERDE "Transferência concluída!\n" RESET);
+    }
     fclose(file);
-    close(socket);
 }
 
 void receive_file(int socket)
@@ -83,7 +101,6 @@ void receive_file(int socket)
     if (bytes_read <= 0)
     {
         perror("Erro ao receber o nome do arquivo");
-        close(socket);
         return;
     }
     buffer[bytes_read] = '\0';
@@ -95,7 +112,6 @@ void receive_file(int socket)
     if (bytes_read <= 0)
     {
         perror("Erro ao receber o tamanho do arquivo");
-        close(socket);
         return;
     }
     printf("Tamanho do arquivo: %ld bytes\n", file_size);
@@ -105,7 +121,6 @@ void receive_file(int socket)
     if (bytes_read <= 0)
     {
         perror("Erro ao receber o destino do arquivo");
-        close(socket);
         return;
     }
     buffer[bytes_read] = '\0';
@@ -127,7 +142,6 @@ void receive_file(int socket)
         if (file == NULL)
         {
             perror("Erro ao abrir o arquivo existente");
-            close(socket);
             return;
         }
 
@@ -143,7 +157,6 @@ void receive_file(int socket)
         if (file == NULL)
         {
             perror("Erro ao criar o arquivo");
-            close(socket);
             return;
         }
     }
@@ -166,7 +179,6 @@ void receive_file(int socket)
             {
                 perror("Erro ao escrever no arquivo");
                 fclose(file);
-                close(socket);
                 return;
             }
             file_size -= bytes_read;
@@ -199,7 +211,6 @@ void receive_file(int socket)
         }
     }
 
-    close(socket);
 }
 
 void *handle_client(void *arg)
@@ -235,7 +246,7 @@ void *handle_client(void *arg)
         close(client_sock);
     }
 
-    pthread_mutex_unlock(&clientes_conectados_lock);
+    pthread_mutex_lock(&clientes_conectados_lock);
     clientes_conectados--;
     pthread_mutex_unlock(&clientes_conectados_lock);
     printf(MAGENTA "Cliente desconectado.\n" RESET);
