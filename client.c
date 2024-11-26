@@ -209,8 +209,8 @@ int main(int argc, char *argv[])
 
     if (argc != 4)
     {
-        fprintf(stderr, "Uso SEND: %s <path_arquivo_local> <ip_destino> <path_destino>\n", argv[0]);
-        fprintf(stderr, "Uso RECEIVE: %s <ip_destino> <path_arquivo_destino> <path_local>\n", argv[0]);
+        fprintf(stderr, "Use SEND: %s <path_file_client> <ip_server> <path_server>\n", argv[0]);
+        fprintf(stderr, "Use RECEIVE: %s <ip_server> <path_file_server> <path_local>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
