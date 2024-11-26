@@ -32,7 +32,7 @@ void send_file(int socket)
     bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
     if (bytes_read <= 0)
     {
-        perror(VERMELHO"Erro ao receber o path do arquivo"RESET);
+        perror(VERMELHO "Erro ao receber o path do arquivo" RESET);
         return;
     }
     buffer[bytes_read] = '\0';
@@ -55,35 +55,41 @@ void send_file(int socket)
     send(socket, &file_size, sizeof(file_size), 0);
 
     int transfer_success = 1;
-    while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0) {
+    while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0)
+    {
         struct pollfd pfd;
         pfd.fd = socket;
         pfd.events = POLLIN | POLLERR | POLLHUP;
 
         sleep(1);
         int poll_result = poll(&pfd, 1, 0); // Timeout de 0 para verificação instantânea
-        if (poll_result > 0) {
-            if (pfd.revents & POLLHUP) {
-                printf(VERMELHO"Cliente desconectou.\n"RESET);
+        if (poll_result > 0)
+        {
+            if (pfd.revents & POLLHUP)
+            {
+                printf(VERMELHO "Cliente desconectou.\n" RESET);
                 transfer_success = 0;
                 break;
             }
-            if (pfd.revents & POLLERR) {
-                printf(VERMELHO"Erro no socket.\n"RESET);
+            if (pfd.revents & POLLERR)
+            {
+                printf(VERMELHO "Erro no socket.\n" RESET);
                 transfer_success = 0;
                 break;
             }
         }
 
-        if (send(socket, buffer, bytes_read, 0) == -1) {
-            perror(VERMELHO"Erro ao enviar dados"RESET);
+        if (send(socket, buffer, bytes_read, 0) == -1)
+        {
+            perror(VERMELHO "Erro ao enviar dados" RESET);
             transfer_success = 0;
             break;
         }
         printf("Enviando %zu bytes...\n", bytes_read);
     }
 
-    if (transfer_success) {
+    if (transfer_success)
+    {
         printf(VERDE "Transferência concluída!\n" RESET);
     }
     fclose(file);
@@ -146,7 +152,7 @@ void receive_file(int socket)
         }
 
         fseek(file, 0, SEEK_END);
-        part_size = ftell(file); // Tamanho do arquivo atual
+        part_size = ftell(file); // Tamanho do arquivo .part
         printf("Tamanho do arquivo .part existente: %ld bytes\n", part_size);
         printf(VERMELHO "Os primeiros %ld bytes serão ignorados na transferência.\n" RESET, part_size);
     }
@@ -200,7 +206,7 @@ void receive_file(int socket)
     if (file_size == 0)
     {
         char final_file_path[1024];
-        snprintf(final_file_path, sizeof(final_file_path), "server_arqs/%s", arq_name);
+        snprintf(final_file_path, sizeof(final_file_path), "%s/%s", new_file_dir, arq_name);
         if (rename(filepath, final_file_path) != 0)
         {
             perror("Erro ao renomear o arquivo");
@@ -210,7 +216,6 @@ void receive_file(int socket)
             printf("Arquivo renomeado para '%s'.\n", final_file_path);
         }
     }
-
 }
 
 void *handle_client(void *arg)

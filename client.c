@@ -132,29 +132,26 @@ void receive_file(int socket, const char *file_path, const char *dest_dir)
         if (part_size > 0)
         {
             bytes_ignore += bytes_read;
+            file_size -= bytes_read;
             if (bytes_ignore == part_size)
             {
                 part_size = 0;
-                file_size -= bytes_ignore;
             }
         }
-        else
+        else if (bytes_read > 0)
         {
-            if (bytes_read > 0)
+            if (fwrite(buffer, sizeof(char), bytes_read, file) != bytes_read)
             {
-                if (fwrite(buffer, sizeof(char), bytes_read, file) != (size_t)bytes_read)
-                {
-                    perror("Erro ao escrever no arquivo");
-                    fclose(file);
-                    free(arq_name);
-                    return;
-                }
-                file_size -= bytes_read;
+                perror("Erro ao escrever no arquivo");
+                fclose(file);
+                return;
             }
+            file_size -= bytes_read;
+            fflush(file);
         }
     }
 
-    if (bytes_read == 0 && !file_size)
+    if (bytes_read == 0 && file_size == 0)
     {
         printf(VERDE "Transferência de arquivo concluída.\n" RESET);
     }
