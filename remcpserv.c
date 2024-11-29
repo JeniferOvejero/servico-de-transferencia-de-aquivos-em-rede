@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <sys/time.h>
 #include <poll.h>
 
 #define RESET "\033[0m"
@@ -53,6 +54,7 @@ void send_file(int socket)
     rewind(file);
 
     send(socket, &file_size, sizeof(file_size), 0);
+    sleep(1);
 
     int transfer_success = 1;
     while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0)
@@ -61,7 +63,7 @@ void send_file(int socket)
         pfd.fd = socket;
         pfd.events = POLLIN | POLLERR | POLLHUP;
 
-        sleep(1);
+        // sleep(1);
         int poll_result = poll(&pfd, 1, 0); // Timeout de 0 para verificação instantânea
         if (poll_result > 0)
         {
@@ -167,7 +169,13 @@ void receive_file(int socket)
         }
     }
 
+    long bytes_read_count = 0;
     long bytes_ignore = 0; // Controla quantos bytes ignorar para saber onde continuar
+    struct timeval start, end;
+    double elapsed_time = 0;
+    long max_transf = MAX_TRANSF / MAX_CONN;
+    gettimeofday(&start, NULL); // Marca o tempo inicial
+
     while ((bytes_read = recv(socket, buffer, sizeof(buffer), 0)) > 0)
     {
         if (part_size > 0)
@@ -189,6 +197,28 @@ void receive_file(int socket)
             }
             file_size -= bytes_read;
         }
+
+        bytes_read_count += bytes_read; // Contagem total de bytes lidos
+
+        gettimeofday(&end, NULL); // Marca o tempo final
+        // Calcula o tempo decorrido em segundos (considera segundos e microssegundos)
+        elapsed_time = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
+
+        // Verifica se os bytes lidos excederam o limite em 1 segundo
+        if (bytes_read_count > max_transf && elapsed_time <= 1)
+        {
+            printf(VERMELHO "Limite de transferência atingido para o arquivo %s, aguardando 1 segundo...\n" RESET, arq_name);
+            sleep(1);                   // Espera 1 segundo
+            bytes_read_count = 0;       // Reinicia a contagem de bytes lidos
+            gettimeofday(&start, NULL); // Reinicia o contador de tempo
+        }
+
+        // Se o tempo passar de 1 segundo, reinicia os contadores
+        if (elapsed_time > 1)
+        {
+            bytes_read_count = 0;       // Reinicia os bytes lidos
+            gettimeofday(&start, NULL); // Reinicia o contador de tempo
+        }
     }
 
     if (bytes_read == 0 && file_size == 0)
@@ -202,7 +232,6 @@ void receive_file(int socket)
 
     fclose(file);
 
-    // Renomeia o arquivo
     if (file_size == 0)
     {
         char final_file_path[1024];
