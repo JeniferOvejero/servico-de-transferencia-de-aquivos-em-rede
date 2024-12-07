@@ -18,16 +18,43 @@
 
 #define PORT 8080
 #define MAX_CONN 5
-#define MAX_TRANSF 640
+#define MAX_TRANSF 300
 #define BUFFER_SIZE 128
 
 int clientes_conectados = 0;
 pthread_mutex_t clientes_conectados_lock = PTHREAD_MUTEX_INITIALIZER;
 
+#include <stdio.h>
+#include <string.h> // Para strlen
+
+void progress_bar(const char *filename, int progress, int total)
+{
+    char spinner[] = {'|', '/', '-', '\\'};
+    int spinner_index = progress % 4;               // Altera o spinner conforme o progresso
+    int bar_width = 30;                             // Largura da barra de progresso
+    int completed = (progress * bar_width) / total; // Quantidade de blocos completos
+
+    // Barra de progresso
+    char bar[bar_width + 1];
+    for (int i = 0; i < bar_width; i++)
+    {
+        if (i < completed)
+            bar[i] = '#';
+        else
+            bar[i] = ' ';
+    }
+    bar[bar_width] = '\0'; // Certifique-se de que é uma string terminada em '\0'
+
+    // Imprime a linha
+    printf("\r(%s) Carregando... %c %d [%s] %dbytes", filename, spinner[spinner_index], progress, bar, total);
+    fflush(stdout); // Atualiza imediatamente a saída
+}
+
 void send_file(int socket)
 {
     char buffer[BUFFER_SIZE];
     ssize_t bytes_read;
+    long file_part_size = 0;
 
     // Recebe o path do arquivo a ser transferido ao cliente
     bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
@@ -54,7 +81,20 @@ void send_file(int socket)
     rewind(file);
 
     send(socket, &file_size, sizeof(file_size), 0);
-    sleep(1);
+    // sleep(1);
+
+    bytes_read = recv(socket, &file_part_size, sizeof(file_part_size), 0);
+    if (bytes_read <= 0)
+    {
+        perror("Erro ao receber o tamanho do arquivo .part");
+        return;
+    }
+
+    if (file_part_size > 1)
+    {
+        printf("Tamanho do arquivo .part encontrado: %ld bytes\n", file_part_size);
+        fseek(file, file_part_size, SEEK_SET);
+    }
 
     int transfer_success = 1;
     while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0)
@@ -63,7 +103,7 @@ void send_file(int socket)
         pfd.fd = socket;
         pfd.events = POLLIN | POLLERR | POLLHUP;
 
-        // sleep(1);
+        sleep(1);
         int poll_result = poll(&pfd, 1, 0); // Timeout de 0 para verificação instantânea
         if (poll_result > 0)
         {
@@ -101,7 +141,6 @@ void receive_file(int socket)
 {
     char buffer[1024];
     ssize_t bytes_read;
-    char file_name[256];
     long file_size = 0;
 
     // Recebe o nome do arquivo
@@ -112,7 +151,6 @@ void receive_file(int socket)
         return;
     }
     buffer[bytes_read] = '\0';
-    printf("Recebendo arquivo: %s\n", buffer);
     char *arq_name = strdup(buffer);
 
     // Recebe o tamanho do arquivo
@@ -122,7 +160,6 @@ void receive_file(int socket)
         perror("Erro ao receber o tamanho do arquivo");
         return;
     }
-    printf("Tamanho do arquivo: %ld bytes\n", file_size);
 
     // Recebe o destino do arquivo
     bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
@@ -132,20 +169,19 @@ void receive_file(int socket)
         return;
     }
     buffer[bytes_read] = '\0';
-    printf("Destino do arquivo: %s\n", buffer);
     char *new_file_dir = strdup(buffer);
 
     // Monta o caminho completo do arquivo .part
     char filepath[1024];
     snprintf(filepath, sizeof(filepath), "%s/%s.part", new_file_dir, arq_name);
-    printf("Arquivo será salvo em: %s\n", filepath);
+    printf("Arquivo %s (%ld bytes) será copiado para: %s\n", arq_name, file_size, filepath);
 
     // Verifica se existe o arquivo .part
     FILE *file = NULL;
     long part_size = 0;
+
     if (access(filepath, F_OK) != -1)
     {
-        printf("Arquivo .part encontrado, continuando a transferência.\n");
         file = fopen(filepath, "ab");
         if (file == NULL)
         {
@@ -155,39 +191,56 @@ void receive_file(int socket)
 
         fseek(file, 0, SEEK_END);
         part_size = ftell(file); // Tamanho do arquivo .part
-        printf("Tamanho do arquivo .part existente: %ld bytes\n", part_size);
-        printf(VERMELHO "Os primeiros %ld bytes serão ignorados na transferência.\n" RESET, part_size);
+        printf(VERMELHO "Arquivo .part de %ld bytes existente.\n" RESET, part_size);
+        // Envio do tamanho ao cliente (usando o endereço de part_size)
+        if (send(socket, &part_size, sizeof(part_size), 0) == -1)
+        {
+            perror("Erro ao enviar part_size ao cliente");
+            return;
+        }
     }
     else
     {
-        // Cria novo arquivo
         file = fopen(filepath, "wb");
         if (file == NULL)
         {
             perror("Erro ao criar o arquivo");
             return;
         }
+
+        int signal = 1;
+        // Envio do sinal para indicar que não há arquivo .part
+        if (send(socket, &signal, sizeof(signal), 0) == -1)
+        {
+            perror("Erro ao enviar sinal ao cliente");
+            return;
+        }
     }
 
-    long bytes_read_count = 0;
-    long bytes_ignore = 0; // Controla quantos bytes ignorar para saber onde continuar
-    struct timeval start, end;
-    double elapsed_time = 0;
-    long max_transf = MAX_TRANSF / MAX_CONN;
-    gettimeofday(&start, NULL); // Marca o tempo inicial
+    long max_transf = MAX_TRANSF / clientes_conectados;
+    printf("Max transf: %ld\n", max_transf);
+    long file_size_count = 0;
+    long file_size_decrement = 0;
+    if (part_size > 0)
+    {
+        file_size_decrement = file_size - part_size;
+        file_size_count = part_size;
+    }
+    else
+    {
+        file_size_decrement = file_size;
+        file_size_count = 0;
+    }
+
+    if (send(socket, &max_transf, sizeof(max_transf), 0) == -1)
+    {
+        perror("Erro ao enviar taxa de transferência ao cliente");
+        return;
+    }
 
     while ((bytes_read = recv(socket, buffer, sizeof(buffer), 0)) > 0)
     {
-        if (part_size > 0)
-        {
-            bytes_ignore += bytes_read;
-            file_size -= bytes_read;
-            if (bytes_ignore == part_size)
-            {
-                part_size = 0;
-            }
-        }
-        else if (bytes_read > 0)
+        if (bytes_read > 0)
         {
             if (fwrite(buffer, sizeof(char), bytes_read, file) != bytes_read)
             {
@@ -195,44 +248,25 @@ void receive_file(int socket)
                 fclose(file);
                 return;
             }
-            file_size -= bytes_read;
-        }
-
-        bytes_read_count += bytes_read; // Contagem total de bytes lidos
-
-        gettimeofday(&end, NULL); // Marca o tempo final
-        // Calcula o tempo decorrido em segundos (considera segundos e microssegundos)
-        elapsed_time = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1000000.0;
-
-        // Verifica se os bytes lidos excederam o limite em 1 segundo
-        if (bytes_read_count > max_transf && elapsed_time <= 1)
-        {
-            printf(VERMELHO "Limite de transferência atingido para o arquivo %s, aguardando 1 segundo...\n" RESET, arq_name);
-            sleep(1);                   // Espera 1 segundo
-            bytes_read_count = 0;       // Reinicia a contagem de bytes lidos
-            gettimeofday(&start, NULL); // Reinicia o contador de tempo
-        }
-
-        // Se o tempo passar de 1 segundo, reinicia os contadores
-        if (elapsed_time > 1)
-        {
-            bytes_read_count = 0;       // Reinicia os bytes lidos
-            gettimeofday(&start, NULL); // Reinicia o contador de tempo
+            file_size_decrement -= bytes_read;
+            file_size_count += bytes_read;
+            progress_bar(arq_name, file_size_count, file_size);
+            fflush(file);
         }
     }
 
-    if (bytes_read == 0 && file_size == 0)
+    if (bytes_read == 0)
     {
-        printf(VERDE "Transferência de arquivo concluída.\n" RESET);
+        printf(VERDE "\nTransferência de arquivo concluída.\n" RESET);
     }
     else
     {
-        perror("Erro durante a transferência do arquivo");
+        perror("\nErro durante a transferência do arquivo");
     }
 
     fclose(file);
 
-    if (file_size == 0)
+    if (!file_size_decrement)
     {
         char final_file_path[1024];
         snprintf(final_file_path, sizeof(final_file_path), "%s/%s", new_file_dir, arq_name);
