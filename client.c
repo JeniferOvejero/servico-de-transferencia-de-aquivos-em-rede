@@ -53,6 +53,7 @@ void send_file(int socket, const char *file_path, const char *dest_dir)
     FILE *file = fopen(file_path, "rb");
     long file_size = 0;
     long file_part_size = 0;
+    long max_transf = 0;
 
     if (file == NULL)
     {
@@ -88,7 +89,14 @@ void send_file(int socket, const char *file_path, const char *dest_dir)
         fseek(file, file_part_size, SEEK_SET);
     }
 
-    while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0)
+    bytes_read = recv(socket, &max_transf, sizeof(max_transf), 0);
+    if (bytes_read <= 0)
+    {
+        perror("Erro ao receber a taxa de transferência do arquivo .part");
+        return;
+    }
+
+    while ((bytes_read = fread(buffer, sizeof(char), max_transf, file)) > 0)
     {
         sleep(1);
         if (send(socket, buffer, bytes_read, 0) == -1)
@@ -98,6 +106,8 @@ void send_file(int socket, const char *file_path, const char *dest_dir)
             return;
         }
         printf("Enviado %zu bytes...\n", bytes_read);
+
+        recv(socket, &max_transf, sizeof(max_transf), 0);
     }
 
     printf(VERDE "Transferência concluída!\n" RESET);

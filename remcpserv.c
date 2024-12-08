@@ -23,31 +23,42 @@
 
 int clientes_conectados = 0;
 pthread_mutex_t clientes_conectados_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t print_mutex;
 
-#include <stdio.h>
-#include <string.h> // Para strlen
-
-void progress_bar(const char *filename, int progress, int total)
+typedef struct
 {
-    char spinner[] = {'|', '/', '-', '\\'};
-    int spinner_index = progress % 4;               // Altera o spinner conforme o progresso
-    int bar_width = 30;                             // Largura da barra de progresso
-    int completed = (progress * bar_width) / total; // Quantidade de blocos completos
+    int thread_id;
+    int socket;
+} ThreadArgs;
 
-    // Barra de progresso
+void move_cursor(int row, int col)
+{
+    printf("\033[%d;%dH", row, col);
+}
+
+void progress_bar(int thread_id, const char *filename, int progress, int total_size)
+{
+    int bar_width = 30;
     char bar[bar_width + 1];
-    for (int i = 0; i < bar_width; i++)
-    {
-        if (i < completed)
-            bar[i] = '#';
-        else
-            bar[i] = ' ';
-    }
-    bar[bar_width] = '\0'; // Certifique-se de que é uma string terminada em '\0'
+    int filled = (progress * bar_width) / total_size;
 
-    // Imprime a linha
-    printf("\r(%s) Carregando... %c %d [%s] %dbytes", filename, spinner[spinner_index], progress, bar, total);
-    fflush(stdout); // Atualiza imediatamente a saída
+    memset(bar, '#', filled);
+    memset(bar + filled, ' ', bar_width - filled);
+    bar[bar_width] = '\0';
+
+    pthread_mutex_lock(&print_mutex);
+
+    move_cursor(thread_id + 20, 1);
+    printf("(%s) Carregando... %c %d [%s] %dbytes/%dbytes    ",
+           filename,
+           "|/-\\"[progress % 4], // Spinner animado
+           progress,
+           bar,
+           progress,
+           total_size);
+    fflush(stdout);
+
+    pthread_mutex_unlock(&print_mutex);
 }
 
 void send_file(int socket)
@@ -137,11 +148,13 @@ void send_file(int socket)
     fclose(file);
 }
 
-void receive_file(int socket)
+void receive_file(ThreadArgs *args)
 {
     char buffer[1024];
     ssize_t bytes_read;
     long file_size = 0;
+    int thread_id = args->thread_id;
+    int socket = args->socket;
 
     // Recebe o nome do arquivo
     bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
@@ -219,6 +232,7 @@ void receive_file(int socket)
 
     long max_transf = MAX_TRANSF / clientes_conectados;
     printf("Max transf: %ld\n", max_transf);
+
     long file_size_count = 0;
     long file_size_decrement = 0;
     if (part_size > 0)
@@ -250,9 +264,11 @@ void receive_file(int socket)
             }
             file_size_decrement -= bytes_read;
             file_size_count += bytes_read;
-            progress_bar(arq_name, file_size_count, file_size);
+            progress_bar(thread_id, arq_name, file_size_count, file_size);
             fflush(file);
         }
+        max_transf = MAX_TRANSF / clientes_conectados;
+        send(socket, &max_transf, sizeof(max_transf), 0);
     }
 
     if (bytes_read == 0)
@@ -283,8 +299,10 @@ void receive_file(int socket)
 
 void *handle_client(void *arg)
 {
-    int client_sock = *(int *)arg;
-    free(arg);
+    ThreadArgs *args = (ThreadArgs *)arg;
+    int thread_id = args->thread_id;
+    int client_sock = args->socket; // Só para mostrar como acessar, não será usado
+    (void)socket;
 
     char buffer[1024];
     ssize_t bytes_read;
@@ -306,7 +324,7 @@ void *handle_client(void *arg)
     }
     else if (strcmp(buffer, "receive_file") == 0)
     {
-        receive_file(client_sock); // Chama a função de receber arquivo
+        receive_file(args); // Chama a função de receber arquivo
     }
     else
     {
@@ -330,6 +348,7 @@ int main()
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_len = sizeof(client_addr);
     pthread_t thread_id;
+    ThreadArgs thread_args[MAX_CONN];
 
     server_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (server_sock == -1)
@@ -401,7 +420,9 @@ int main()
         *new_sock = client_sock;
 
         pthread_t client_thread;
-        if (pthread_create(&client_thread, NULL, handle_client, (void *)new_sock) != 0)
+        thread_args[clientes_conectados].thread_id = clientes_conectados;
+        thread_args[clientes_conectados].socket = *new_sock;
+        if (pthread_create(&client_thread, NULL, handle_client, &thread_args[clientes_conectados]) != 0)
         {
             perror(VERMELHO "Erro ao criar thread" RESET);
             free(new_sock);
