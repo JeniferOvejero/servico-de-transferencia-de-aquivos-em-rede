@@ -19,7 +19,7 @@
 #define PORT 8080
 #define MAX_CONN 5
 #define MAX_TRANSF 300
-#define BUFFER_SIZE 128
+// #define BUFFER_SIZE 300
 
 int clientes_conectados = 0;
 pthread_mutex_t clientes_conectados_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -31,41 +31,42 @@ typedef struct
     int socket;
 } ThreadArgs;
 
-void move_cursor(int row, int col)
-{
-    printf("\033[%d;%dH", row, col);
-}
+// void move_cursor(int row, int col)
+// {
+//     printf("\033[%d;%dH", row, col);
+// }
 
-void progress_bar(int thread_id, const char *filename, int progress, int total_size)
-{
-    int bar_width = 30;
-    char bar[bar_width + 1];
-    int filled = (progress * bar_width) / total_size;
+// void progress_bar(int thread_id, const char *filename, int progress, int total_size)
+// {
+//     int bar_width = 30;
+//     char bar[bar_width + 1];
+//     int filled = (progress * bar_width) / total_size;
 
-    memset(bar, '#', filled);
-    memset(bar + filled, ' ', bar_width - filled);
-    bar[bar_width] = '\0';
+//     memset(bar, '#', filled);
+//     memset(bar + filled, ' ', bar_width - filled);
+//     bar[bar_width] = '\0';
 
-    pthread_mutex_lock(&print_mutex);
+//     pthread_mutex_lock(&print_mutex);
 
-    move_cursor(thread_id + 20, 1);
-    printf("(%s) Carregando... %c %d [%s] %dbytes/%dbytes    ",
-           filename,
-           "|/-\\"[progress % 4], // Spinner animado
-           progress,
-           bar,
-           progress,
-           total_size);
-    fflush(stdout);
+//     move_cursor(thread_id + 20, 1);
+    
+//     printf("(%s) Carregando... %c  [%s] %dbytes/%dbytes    ",
+//            filename,
+//            "|/-\\"[progress % 4], // Spinner animado
+//            bar,
+//            progress,
+//            total_size);
+//     fflush(stdout);
 
-    pthread_mutex_unlock(&print_mutex);
-}
+//     pthread_mutex_unlock(&print_mutex);
+// }
 
 void send_file(int socket)
 {
-    char buffer[BUFFER_SIZE];
+    char buffer[MAX_TRANSF];
     ssize_t bytes_read;
     long file_part_size = 0;
+    long max_transf = MAX_TRANSF / clientes_conectados;
 
     // Recebe o path do arquivo a ser transferido ao cliente
     bytes_read = recv(socket, buffer, sizeof(buffer) - 1, 0);
@@ -108,12 +109,13 @@ void send_file(int socket)
     }
 
     int transfer_success = 1;
-    while ((bytes_read = fread(buffer, sizeof(char), BUFFER_SIZE, file)) > 0)
+    while ((bytes_read = fread(buffer, sizeof(char), max_transf, file)) > 0)
     {
+        
         struct pollfd pfd;
         pfd.fd = socket;
         pfd.events = POLLIN | POLLERR | POLLHUP;
-
+        
         sleep(1);
         int poll_result = poll(&pfd, 1, 0); // Timeout de 0 para verificação instantânea
         if (poll_result > 0)
@@ -139,6 +141,9 @@ void send_file(int socket)
             break;
         }
         printf("Enviando %zu bytes...\n", bytes_read);
+        max_transf = MAX_TRANSF / clientes_conectados;
+        
+        
     }
 
     if (transfer_success)
@@ -187,7 +192,7 @@ void receive_file(ThreadArgs *args)
     // Monta o caminho completo do arquivo .part
     char filepath[1024];
     snprintf(filepath, sizeof(filepath), "%s/%s.part", new_file_dir, arq_name);
-    printf("Arquivo %s (%ld bytes) será copiado para: %s\n", arq_name, file_size, filepath);
+    printf("\nArquivo %s (%ld bytes) será copiado para: %s\n", arq_name, file_size, filepath);
 
     // Verifica se existe o arquivo .part
     FILE *file = NULL;
@@ -264,7 +269,8 @@ void receive_file(ThreadArgs *args)
             }
             file_size_decrement -= bytes_read;
             file_size_count += bytes_read;
-            progress_bar(thread_id, arq_name, file_size_count, file_size);
+            // progress_bar(thread_id, arq_name, file_size_count, file_size);
+            printf("\n(Thread %d) Transferindo arquivo %s para %s... Taxa: %ld", thread_id, arq_name, filepath, max_transf);
             fflush(file);
         }
         max_transf = MAX_TRANSF / clientes_conectados;
