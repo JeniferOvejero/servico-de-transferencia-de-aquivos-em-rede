@@ -49,7 +49,7 @@ typedef struct
 //     pthread_mutex_lock(&print_mutex);
 
 //     move_cursor(thread_id + 20, 1);
-    
+
 //     printf("(%s) Carregando... %c  [%s] %dbytes/%dbytes    ",
 //            filename,
 //            "|/-\\"[progress % 4], // Spinner animado
@@ -111,11 +111,11 @@ void send_file(int socket)
     int transfer_success = 1;
     while ((bytes_read = fread(buffer, sizeof(char), max_transf, file)) > 0)
     {
-        
+
         struct pollfd pfd;
         pfd.fd = socket;
         pfd.events = POLLIN | POLLERR | POLLHUP;
-        
+
         sleep(1);
         int poll_result = poll(&pfd, 1, 0); // Timeout de 0 para verificação instantânea
         if (poll_result > 0)
@@ -142,8 +142,6 @@ void send_file(int socket)
         }
         printf("Enviando %zu bytes...\n", bytes_read);
         max_transf = MAX_TRANSF / clientes_conectados;
-        
-        
     }
 
     if (transfer_success)
@@ -270,7 +268,7 @@ void receive_file(ThreadArgs *args)
             file_size_decrement -= bytes_read;
             file_size_count += bytes_read;
             // progress_bar(thread_id, arq_name, file_size_count, file_size);
-            printf("\n(Thread %d) Transferindo arquivo %s para %s... Taxa: %ld", thread_id, arq_name, filepath, max_transf);
+            // printf("\n(Thread %d) Transferindo arquivo %s para %s... Taxa: %ld", thread_id, arq_name, filepath, max_transf);
             fflush(file);
         }
         max_transf = MAX_TRANSF / clientes_conectados;

@@ -47,7 +47,6 @@ void progress_bar(const char *filename, int progress, int total)
 
 void send_file(int socket, const char *file_path, const char *dest_dir)
 {
-    char buffer[BUFFER_SIZE];
     const char *file_name;
     size_t bytes_read;
     FILE *file = fopen(file_path, "rb");
@@ -95,6 +94,7 @@ void send_file(int socket, const char *file_path, const char *dest_dir)
         perror("Erro ao receber a taxa de transferência do arquivo .part");
         return;
     }
+    char buffer[max_transf];
 
     while ((bytes_read = fread(buffer, sizeof(char), max_transf, file)) > 0)
     {
@@ -208,7 +208,7 @@ void receive_file(int socket, const char *file_path, const char *dest_dir)
             file_size_decrement -= bytes_read;
             file_size_count += bytes_read;
         }
-        progress_bar(arq_name, file_size_count, file_size);
+        // progress_bar(arq_name, file_size_count, file_size);
     }
 
     if (bytes_read == 0 && file_size_decrement == 0)
